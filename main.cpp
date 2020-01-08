@@ -106,6 +106,10 @@ vec3 operator*(vec3 left, float value){
 	left *= value;
 	return left;
 }
+vec3 operator*(float value, vec3 left){
+	left *= value;
+	return left;
+}
 vec3 operator/(vec3 left, float value){
 	left /= value;
 	return left;
@@ -113,6 +117,10 @@ vec3 operator/(vec3 left, float value){
 
 float dot(vec3 left, const vec3& right){
 	return (left.x * right.x) + (left.y * right.y) + (left.z * right.z);  
+}
+
+vec3 ComponentwiseMultiply(vec3 left, const vec3& right){
+	return vec3{left.x *right.x, left.y * right.y, left.z * right.z};
 }
 
 std::ostream& operator<<(std::ostream& stream, const vec3& v){
@@ -125,60 +133,115 @@ float length2(const vec3& v){
 float length(const vec3& v){
 	return sqrtf(length2(v));
 }
+vec3 normalize(vec3 v){
+	return v/length(v);
+}
 
 struct Plane{
 	vec3 normal;
 	float distance;
+	uint32_t matIndex;
 };
 
 struct Sphere{
 	float radius;
 	vec3 position;
+	uint32_t matIndex;
 };
+
+struct Material{
+	vec3 diffuseColor;
+	vec3 specularColor;
+	vec3 emitColor;
+	float roughness;
+};
+
+struct World{
+	Plane* planes;
+	Sphere* spheres;
+	Material* materials;
+	uint32_t numSpheres;
+	uint32_t numPlanes;
+	uint32_t numMaterials;
+};
+
 
 uint32_t FloatRGBToPixel(const vec3& color, float alpha){
 	return (uint8_t)(255 * alpha) << 24| (uint8_t)(255 * color.x) << 16|(uint8_t)(255 * color.y) << 8|(uint8_t)(255 * color.z);
 }
 
 
-void Intersect(const vec3& rayOrigin, const vec3& rayDir, const Plane& plane, uint32_t& color){
+vec3 RayCast(vec3 rayOrigin, vec3 rayDir, World* world){
 	// float d = dot(plane.normal, point);
 	// return d - plane.distance > 0;
-	float d = plane.distance * length(plane.normal);
-	float t = (d - dot(rayOrigin, plane.normal)) / dot(plane.normal, rayDir);
-	if (t > 0){
-		color = FloatRGBToPixel({0.18f, 0.31f, 0.62f}, 1.f);
-	}
-}
-void Intersect(const vec3& rayOrigin,const vec3& rayDir, const Sphere& sphere, uint32_t& color){
 
-	vec3 nextRayOrigin = rayOrigin;
-	vec3 nextRayDir = rayDir;
 
-	for(int i = 0;i < 1; i++){
-		float a = dot(nextRayDir, nextRayDir);
-		float b = 2 * (dot(nextRayDir, nextRayOrigin));
-		float c = dot(nextRayOrigin, nextRayOrigin) - sphere.radius*sphere.radius;
+	vec3 result = world->materials[0].diffuseColor;
 
-		float disc = (b*b) - (4*a*c);
-		float div = 2 * a;
-		if(disc < 0){
-			return;
+	vec3 nextRayOrigin;
+	vec3 nextNormal;
+
+	for(uint32_t rayCount = 0; rayCount < 1; rayCount++){
+		uint32_t maxDistance = 0xFFFFFFFF;
+		uint32_t HitMatIndex = 0;
+
+		for(uint32_t i = 0; i < world->numPlanes; i++){
+			Plane plane = world->planes[i]; 
+			float d = plane.distance * length(plane.normal);
+			float t = (d - dot(plane.normal, rayOrigin))/dot(plane.normal, rayDir);
+			if ((t > 0) && (t < maxDistance)){
+				maxDistance = t;
+				nextRayOrigin = rayOrigin + (rayDir*t);
+				nextNormal = normalize(plane.normal);
+				HitMatIndex = plane.matIndex;
+			}
 		}
-		float threshold = 0.001f;
-		if (abs(disc) < threshold){
-			return;
-		}
-		float disc_div = sqrtf(disc) / div;
-		float t1 = -2*b + disc_div;
-		float t2 = -2*b - disc_div; 
-		float t = (length(nextRayDir*t1 - nextRayOrigin) < length(nextRayDir*t1 - nextRayOrigin)) ? t1 : t2;
 
-		nextRayDir = ((nextRayOrigin + nextRayDir*t) - sphere.position);
-		nextRayOrigin = (nextRayOrigin + nextRayDir*t);
+		for(uint32_t i = 0; i < world->numSpheres; i++){
+			Sphere sphere = world->spheres[i];
+			
+			float a = dot(rayDir, rayDir);
+			float b = 2 * dot(rayOrigin, rayDir);
+			float c = dot(rayOrigin, rayOrigin) - pow(sphere.radius, 2);
+
+			float disc = (b*b) - (4*a*c);
+			float div = 2 * a;
+			if(disc < 0){
+				continue;
+			}
+			float threshold = 0.00001f;
+			if (abs(div) < threshold){
+				continue;
+			}
+			float t1 = (-b + sqrt(disc)) / div;
+			float t2 = (-b - sqrt(disc)) / div;
+
+			float t = t1;
+			if ((t2 > 0) && (t2 < t1)){
+				t = t2;
+			}
+
+			if((t > 0) && (t < maxDistance)){
+				maxDistance = t;
+				nextRayOrigin = rayOrigin + (rayDir*t);
+				nextNormal = normalize((rayOrigin + rayDir*t) - sphere.position);
+
+				vec3 position = rayOrigin + rayDir*t;
+				ASSERT(length(position - sphere.position) - sphere.radius < threshold);
+				HitMatIndex = sphere.matIndex;
+			}
+		}
+
+		Material material = world->materials[HitMatIndex];
+		if (HitMatIndex){
+			result = material.diffuseColor;
+			rayOrigin = nextRayOrigin;
+			rayDir = rayDir - 2 * dot(rayDir, nextNormal) * nextNormal;
+		}else{
+			return result;
+		}
 	}
-	
-	color = FloatRGBToPixel({0.65f, 0.4f, 0.08f}, 1.f);
+	return result;
 }
 
 
@@ -211,25 +274,44 @@ int main(){
 	header.SizeOfBitmap = imageSize;    /* Size of bitmap in bytes */
 
 
-	vec3 sensorPositon = {0.f, 0.8f, 5.f};
+	vec3 sensorPositon = {0.f, 1.f, 5.f};
 	vec3 screenPosition = {sensorPositon.x, sensorPositon.y, sensorPositon.z - 1.f};
 
-	Plane plane;
-	plane.normal = {0.f, 1.f, 0.f};
-	plane.distance = 0;
-	Sphere sphere;
-	sphere.position = {0.f, 0.f, 0.f};
-	sphere.radius = 1.f; 
+	Plane planes[1];
+	planes[0].normal = {0.f, 1.f, 0.f};
+	planes[0].distance = 0;
+	planes[0].matIndex = 1;
+	Sphere spheres[1];
+	spheres[0].position = {0.f, 0.f, 0.f};
+	spheres[0].radius = 1.f;
+	spheres[0].matIndex = 2;
+
+
+	Material materials[3] = {};
+	materials[0].diffuseColor = {0.2f, 0.2f, 0.2f};
+	materials[0].specularColor = {1, 1, 1};
+	materials[1].diffuseColor = {0.2f, 0.3f, 0.5f};
+	materials[1].specularColor = {1, 1, 1};
+	materials[2].diffuseColor = {0.6f, 0.4f, 0.08f};
+	materials[2].specularColor = {1, 1, 1};
+	World world;
+	world.numMaterials = sizeof(materials)/sizeof(materials[0]);
+	world.numPlanes = sizeof(planes)/sizeof(planes[0]);
+	world.numSpheres = sizeof(spheres)/sizeof(spheres[0]);
+	world.materials = materials;
+	world.spheres = spheres;
+	world.planes = planes;
 
 	float x_offset = (1.f/(width*2));
 	float y_offset = (1.f/(height*2));
+
+
 	for(int x = 0; x < width; x++){
 		for(int y = 0; y < height; y++){
-			
 			float s_x = x/(float)width - 0.5f + x_offset;
 			float s_y = (1-y/(float)height) - 0.5f + y_offset;
 
-			vec3 rayDir = (screenPosition + vec3{s_x, s_y, 0.f}) - sensorPositon;
+			vec3 rayDir = normalize(screenPosition + vec3{s_x, s_y, 0.f} - sensorPositon);
 
 			float theta = -10/180.f * 3.1415926;
 			float _y = rayDir.y;
@@ -237,9 +319,8 @@ int main(){
 			rayDir.y = _y*cosf(theta) - _z*sin(theta);
 			rayDir.z = _z*cosf(theta) + _y*sin(theta);
 
-			uint32_t pixel = FloatRGBToPixel({0.2f, 0.2f, 0.2f}, 1.f);
-			Intersect(sensorPositon, rayDir, plane, pixel);
-			Intersect(sensorPositon, rayDir, sphere, pixel);
+			vec3 color = RayCast(sensorPositon, rayDir, &world);
+			uint32_t pixel = FloatRGBToPixel(color, 1.f);
 			SetPixel(data, x, ((width-1) - y), width, height, pixel);
 		}
 	}
