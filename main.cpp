@@ -178,11 +178,11 @@ vec3 RayCast(vec3 rayOrigin, vec3 rayDir, World* world){
 
 	vec3 result = world->materials[0].diffuseColor;
 
-	vec3 nextRayOrigin;
-	vec3 nextNormal;
+	vec3 nextRayOrigin = {};
+	vec3 nextNormal = {};
 
 	for(uint32_t rayCount = 0; rayCount < 1; rayCount++){
-		uint32_t maxDistance = 0xFFFFFFFF;
+		float maxDistance = 0xFFFFFFFF;
 		uint32_t HitMatIndex = 0;
 
 		for(uint32_t i = 0; i < world->numPlanes; i++){
@@ -306,8 +306,8 @@ int main(){
 	float y_offset = (1.f/(height*2));
 
 
-	for(int x = 0; x < width; x++){
-		for(int y = 0; y < height; y++){
+	for(uint32_t x = 0; x < width; x++){
+		for(uint32_t y = 0; y < height; y++){
 			float s_x = x/(float)width - 0.5f + x_offset;
 			float s_y = (1-y/(float)height) - 0.5f + y_offset;
 

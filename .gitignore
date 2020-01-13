@@ -1,3 +1,10 @@
 # Directories
 .vscode/
 .vs/
+
+# Files
+*.pdb
+*.idb
+*.obj
+*.ilk
+*.sln
