@@ -1,10 +1,6 @@
-
 #include <iostream>
-// #include <stdio.h>
-#include <stdint.h>
-#include <math.h>
 
-#define ASSERT(X) if(!(X)) { __debugbreak();}
+#include "math_functions.h"
 
 
 #pragma pack(push, 1)
@@ -66,77 +62,6 @@ struct bitmap_header4
 #pragma pack(pop)
 
 
-struct vec3{
-	float x, y, z;
-	vec3& operator-=(const vec3& other){
-		this->x -= other.x;
-		this->y -= other.y;
-		this->z -= other.z;
-		return *this;
-	}
-	vec3& operator+=(const vec3& other){
-		this->x += other.x;
-		this->y += other.y;
-		this->z += other.z;
-		return *this;
-	}
-	vec3& operator*=(float value){
-		this->x *= value;
-		this->y *= value;
-		this->z *= value;
-		return *this;
-	}
-	vec3& operator/=(float value){
-		ASSERT(value != 0.0f);
-		this->x /= value;
-		this->y /= value;
-		this->z /= value;
-		return *this;
-	}
-};
-vec3 operator-(vec3 left, const vec3& right){
-	left -= right;
-	return left;
-}
-vec3 operator+(vec3 left, const vec3& right){
-	left += right;
-	return left;
-}
-vec3 operator*(vec3 left, float value){
-	left *= value;
-	return left;
-}
-vec3 operator*(float value, vec3 left){
-	left *= value;
-	return left;
-}
-vec3 operator/(vec3 left, float value){
-	left /= value;
-	return left;
-}
-
-float dot(vec3 left, const vec3& right){
-	return (left.x * right.x) + (left.y * right.y) + (left.z * right.z);  
-}
-
-vec3 ComponentwiseMultiply(vec3 left, const vec3& right){
-	return vec3{left.x *right.x, left.y * right.y, left.z * right.z};
-}
-
-std::ostream& operator<<(std::ostream& stream, const vec3& v){
-	std::cout << "{ " << v.x << ", " << v.y << ", " << v.z << "}";
-	return stream;
-}
-float length2(const vec3& v){
-	return v.x*v.x + v.y*v.y + v.z*v.z;
-}
-float length(const vec3& v){
-	return sqrtf(length2(v));
-}
-vec3 normalize(vec3 v){
-	return v/length(v);
-}
-
 struct Plane{
 	vec3 normal;
 	float distance;
@@ -144,16 +69,15 @@ struct Plane{
 };
 
 struct Sphere{
-	float radius;
 	vec3 position;
+	float radius;
 	uint32_t matIndex;
 };
 
 struct Material{
-	vec3 diffuseColor;
+	float roughness;
 	vec3 specularColor;
 	vec3 emitColor;
-	float roughness;
 };
 
 struct World{
@@ -166,32 +90,47 @@ struct World{
 };
 
 
+
 uint32_t FloatRGBToPixel(const vec3& color, float alpha){
 	return (uint8_t)(255 * alpha) << 24| (uint8_t)(255 * color.x) << 16|(uint8_t)(255 * color.y) << 8|(uint8_t)(255 * color.z);
 }
 
+float Clamp(float value){
+	if (value > 1.f)
+		value = 1.f;
+	if (value < 0.f)
+		value = 0.f;
+	return value;
+}
+
+vec3 Clamp(vec3 v){
+	v.x = Clamp(v.x);
+	v.y = Clamp(v.y);
+	v.z = Clamp(v.z);
+	return v;
+}
+
 
 vec3 RayCast(vec3 rayOrigin, vec3 rayDir, World* world){
-	// float d = dot(plane.normal, point);
-	// return d - plane.distance > 0;
+	float threshold = 0.01f;
+	vec3 result = {};
 
-
-	vec3 result = world->materials[0].diffuseColor;
+	vec3 specular = {1, 1, 1};
 
 	vec3 nextRayOrigin = {};
 	vec3 nextNormal = {};
-
-	for(uint32_t rayCount = 0; rayCount < 1; rayCount++){
-		float maxDistance = 0xFFFFFFFF;
+	
+	for(uint32_t rayCount = 0; rayCount < 4; rayCount++){
+		float maxDistance = FLT_MAX;
 		uint32_t HitMatIndex = 0;
 
 		for(uint32_t i = 0; i < world->numPlanes; i++){
 			Plane plane = world->planes[i]; 
 			float d = plane.distance * length(plane.normal);
 			float t = (d - dot(plane.normal, rayOrigin))/dot(plane.normal, rayDir);
+
 			if ((t > 0) && (t < maxDistance)){
 				maxDistance = t;
-				nextRayOrigin = rayOrigin + (rayDir*t);
 				nextNormal = normalize(plane.normal);
 				HitMatIndex = plane.matIndex;
 			}
@@ -200,49 +139,70 @@ vec3 RayCast(vec3 rayOrigin, vec3 rayDir, World* world){
 		for(uint32_t i = 0; i < world->numSpheres; i++){
 			Sphere sphere = world->spheres[i];
 			
+			vec3 relativeToOrigin = rayOrigin - sphere.position;
+
 			float a = dot(rayDir, rayDir);
-			float b = 2 * dot(rayOrigin, rayDir);
-			float c = dot(rayOrigin, rayOrigin) - pow(sphere.radius, 2);
+			float b = 2 * dot(rayDir, relativeToOrigin);
+			float c = dot(relativeToOrigin, relativeToOrigin) - sphere.radius * sphere.radius;
 
 			float disc = (b*b) - (4*a*c);
 			float div = 2 * a;
 			if(disc < 0){
 				continue;
 			}
-			float threshold = 0.00001f;
-			if (abs(div) < threshold){
-				continue;
-			}
-			float t1 = (-b + sqrt(disc)) / div;
-			float t2 = (-b - sqrt(disc)) / div;
+			ASSERT(abs(div) > 0.00001f);
+			float t1 = (-b + sqrtf(disc)) / div;
+			float t2 = (-b - sqrtf(disc)) / div;
 
 			float t = t1;
 			if ((t2 > 0) && (t2 < t1)){
 				t = t2;
 			}
 
-			if((t > 0) && (t < maxDistance)){
+			if((t > threshold) && (t < maxDistance)){
 				maxDistance = t;
 				nextRayOrigin = rayOrigin + (rayDir*t);
-				nextNormal = normalize((rayOrigin + rayDir*t) - sphere.position);
+				nextNormal = normalize(nextRayOrigin - sphere.position);
 
-				vec3 position = rayOrigin + rayDir*t;
-				ASSERT(length(position - sphere.position) - sphere.radius < threshold);
+				float distance = length(nextRayOrigin - sphere.position);
+				ASSERT((distance - sphere.radius) < 0.0001f);
 				HitMatIndex = sphere.matIndex;
 			}
 		}
 
 		Material material = world->materials[HitMatIndex];
 		if (HitMatIndex){
-			result = material.diffuseColor;
-			rayOrigin = nextRayOrigin;
-			rayDir = rayDir - 2 * dot(rayDir, nextNormal) * nextNormal;
+			result += ComponentwiseMultiply(specular, material.emitColor);
+			specular = ComponentwiseMultiply(specular, material.specularColor);
+
+			// float phiRange = (float)PI * material.roughness;
+			// CoordinateFrame coordinateFrame = CreateCoordinatFrame(reflectionDir);
+
+			// float anglePhi = (float)PI/2.f - phiRange/2.f + RandomUnilateral() * phiRange;
+			// float angleTheta = RandomUnilateral() * 2*(float)PI;
+
+			// float x = cosf(anglePhi) * cosf(angleTheta);
+			// float y = cosf(anglePhi) * sinf(angleTheta);
+			// float z = sinf(anglePhi);
+
+			// rayDir = normalize(coordinateFrame.lateral * x + coordinateFrame.up * y + coordinateFrame.front * z);
+			// rayDir = reflectionDir;
+			rayOrigin += maxDistance*rayDir;
+
+			vec3 reflectionDir = rayDir - 2 * dot(rayDir, nextNormal) * nextNormal;
+			vec3 randomBounce = nextNormal + vec3{RandomUnilateral()*2.f - 1.f, RandomUnilateral()*2.f - 1.f, RandomUnilateral()*2.f - 1.f};
+			rayDir = normalize(LinearInterpolate(reflectionDir, randomBounce, material.roughness));
+			// rayDir = normalize(reflectionDir);
 		}else{
-			return result;
+			result += ComponentwiseMultiply(specular, material.emitColor);
+			break;
 		}
 	}
+
+	result = Clamp(result);
 	return result;
 }
+
 
 
 void SetPixel(uint32_t* data, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t pixel){
@@ -252,8 +212,8 @@ void SetPixel(uint32_t* data, uint32_t x, uint32_t y, uint32_t width, uint32_t h
 
 int main(){
 
-    uint32_t width = 800;
-    uint32_t height = 800;
+    uint32_t width = 1280;
+    uint32_t height = 720;
 
     uint32_t* data = new(uint32_t[width * height * sizeof(uint32_t)]);
 
@@ -274,26 +234,31 @@ int main(){
 	header.SizeOfBitmap = imageSize;    /* Size of bitmap in bytes */
 
 
-	vec3 sensorPositon = {0.f, 1.f, 5.f};
-	vec3 screenPosition = {sensorPositon.x, sensorPositon.y, sensorPositon.z - 1.f};
+	Plane planes[1] = {
+		{{0.f, 1.f, 0.f}, 0.f, 1}
+	};
 
-	Plane planes[1];
-	planes[0].normal = {0.f, 1.f, 0.f};
-	planes[0].distance = 0;
-	planes[0].matIndex = 1;
-	Sphere spheres[1];
-	spheres[0].position = {0.f, 0.f, 0.f};
-	spheres[0].radius = 1.f;
-	spheres[0].matIndex = 2;
-
-
-	Material materials[3] = {};
-	materials[0].diffuseColor = {0.2f, 0.2f, 0.2f};
-	materials[0].specularColor = {1, 1, 1};
-	materials[1].diffuseColor = {0.2f, 0.3f, 0.5f};
-	materials[1].specularColor = {1, 1, 1};
-	materials[2].diffuseColor = {0.6f, 0.4f, 0.08f};
-	materials[2].specularColor = {1, 1, 1};
+	Sphere spheres[3] = {
+		{{0.f,  0.f,  0.f}, 1.0f, 2},	// 0
+		{{-2.f, 1.f, 0.f}, 1.0f, 3},	// 1
+		{{2.f,  0.5f, 1.f}, 0.5f, 5}	// 2
+		// spheres[3].position = {-0.5f, 1.f, -5.f};
+		// spheres[3].radius = 1.5f;
+		// spheres[3].matIndex = 5;
+		// spheres[4].position = {4.f, 0.f, 5.f};
+		// spheres[4].radius = 0.4f;
+		// spheres[4].matIndex = 6;
+	};
+	Material materials[7] = {
+		{     0, {                }, { 0.3f,  0.4f,  0.5f}},	// 0
+		{  0.3f, {0.5f, 0.5f, 0.5f}, {					 }},	// 1
+		{ 0.95f, {0.7f, 0.5f, 0.3f}, {					 }},	// 2
+		{  0.1f, { 1.f,  1.f,  1.f}, { 1.f,   1.f,    1.f}},	// 3
+		{0.001f, {0.2f, 0.2f, 0.2f}, {0.24f,  0.3f,  0.9f}},	// 4
+		{  0.6f, {0.1f, 0.8f, 0.3f}, {				     }},	// 5
+		{  0.1f, {                }, {  1.f,  0.5f,  1.0f}}		// 6
+	};
+	
 	World world;
 	world.numMaterials = sizeof(materials)/sizeof(materials[0]);
 	world.numPlanes = sizeof(planes)/sizeof(planes[0]);
@@ -302,26 +267,47 @@ int main(){
 	world.spheres = spheres;
 	world.planes = planes;
 
-	float x_offset = (1.f/(width*2));
-	float y_offset = (1.f/(height*2));
+	uint32_t numSamples = 32;
+	float contribution = 1/(float)numSamples;
 
 
+	vec3 cameraP = {0.0f, 1.0f, 5.0f};
+	CoordinateFrame Camera = CreateCoordinatFrame(normalize(vec3{0.0f, 0.0f, 0.0f} - cameraP));
+	Camera.lateral *= -1.0f;
+
+	float FilmDist = 1.0f;
+	float filmW = 1.0f * width/(float)height;
+	float filmH = 1.0f;
+	float halfFilmW = 0.5f*filmW;
+	float halfFilmH = 0.5f*filmH;
+
+	float sampleOffsetX = filmW/width;
+	float sampleOffsetY = filmH/height;
+
+
+	vec3 filmCenter = cameraP + FilmDist * Camera.front;
 	for(uint32_t x = 0; x < width; x++){
+		float filmX = (x/(float)width - 0.5f) * 2.0f;
 		for(uint32_t y = 0; y < height; y++){
-			float s_x = x/(float)width - 0.5f + x_offset;
-			float s_y = (1-y/(float)height) - 0.5f + y_offset;
+			float filmY = ((1-y/(float)height) - 0.5f) * 2.0f;
 
-			vec3 rayDir = normalize(screenPosition + vec3{s_x, s_y, 0.f} - sensorPositon);
+			vec3 finalColor = {};
 
-			float theta = -10/180.f * 3.1415926;
-			float _y = rayDir.y;
-			float _z = rayDir.z;
-			rayDir.y = _y*cosf(theta) - _z*sin(theta);
-			rayDir.z = _z*cosf(theta) + _y*sin(theta);
+			for(uint32_t sample = 0; sample < numSamples; sample++){
+				float s_x = filmX + RandomUnilateral() * sampleOffsetX;
+				float s_y = filmY + RandomUnilateral() * sampleOffsetY;
 
-			vec3 color = RayCast(sensorPositon, rayDir, &world);
-			uint32_t pixel = FloatRGBToPixel(color, 1.f);
-			SetPixel(data, x, ((width-1) - y), width, height, pixel);
+				vec3 filmP = filmCenter + (halfFilmW * Camera.lateral * s_x) + (Camera.up * s_y * halfFilmH);
+				vec3 rayOrigin = cameraP;
+				vec3 rayDirection = normalize(filmP - cameraP);  
+				finalColor += contribution * RayCast(rayOrigin, rayDirection, &world);
+			}
+
+			uint32_t pixel = FloatRGBToPixel(finalColor, 1.f);
+			SetPixel(data, x, ((height-1) - y), width, height, pixel);
+		}
+		if (x % (width/10) == 0){
+			printf("Progress: %d%%\n", 100 * x/width);
 		}
 	}
 
