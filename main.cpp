@@ -133,9 +133,8 @@ vec3 Clamp(vec3 v){
 }
 
 uint32 LockedAdd(volatile uint32* value, uint32 addend){
-    uint32 old = *value;
-    *value += addend;
-    return old;
+	LONG64 old = InterlockedExchangeAdd64((LONG64*)value, addend);
+    return (uint32)old;
 }
 
 
@@ -304,6 +303,7 @@ bool RenderTile(RenderData* renderData){
             *ptr++ = pixel;
 		}
 	}
+	LockedAdd(&renderData->finishedTiles, 1);
 	return true;
 }
 
@@ -356,9 +356,9 @@ int main(){
 	scene.planes = planes;
 
     uint32 threadCount = 32;
-	uint32 tileCount = (width + threadCount - 1) / threadCount;
+	uint32 tileCount = threadCount;
 	uint32 tileWidth = (width + tileCount - 1) / tileCount;
-	uint32 tileHeight = tileWidth;
+	uint32 tileHeight = (height + tileCount - 1) / tileCount;
 
 	printf("TileCount: %d\n", tileCount);
 	printf("TileWidth: %d TileHeight: %d\n", tileWidth, tileHeight);
@@ -388,16 +388,14 @@ int main(){
         ASSERT(threadHandle);
         CloseHandle(threadHandle);
     }
-
-    while(true){
+    while(renderData.finishedTiles < renderData.tileCount){
         if(RenderTile(&renderData)){
-            uint32 percentage = (uint32)(100.0f * renderData.nextTile/((float)renderData.tileCount));
+            uint32 percentage = (uint32)(100.0f * renderData.finishedTiles/(float)renderData.tileCount);
             printf("Progress: %d%%\n", percentage);
-        }else{
-            break;
         }
     }
-
+	printf("Progress: %d%%\n", (uint32)(100.0f * renderData.finishedTiles/(float)renderData.tileCount));
+	printf("FinishedTiles: %d  TileCount: %d\n", renderData.finishedTiles, renderData.tileCount);
 
     FILE* out_file = fopen("render.bmp", "wb");
 
