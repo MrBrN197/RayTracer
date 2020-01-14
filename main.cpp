@@ -264,8 +264,7 @@ bool RenderTile(RenderData* renderData){
 	float contribution = 1/(float)numSamples;
 
 	vec3 cameraP = {0.0f, 1.0f, 5.0f};
-	CoordinateFrame Camera = CreateCoordinatFrame(normalize(vec3{0.0f, 0.0f, 0.0f} - cameraP));
-	Camera.lateral *= -1.0f;
+	CoordinateFrame Camera = CreateCoordinatFrame(normalize(cameraP));
 
 	float FilmDist = 1.0f;
 	float filmW = 1.0f * image->width/(float)image->height;
@@ -277,7 +276,7 @@ bool RenderTile(RenderData* renderData){
 	float sampleOffsetY = filmH/image->height;
 
 
-	vec3 filmCenter = cameraP + FilmDist * Camera.front;
+	vec3 filmCenter = cameraP - FilmDist * Camera.front;
     for(uint32 y = yMin; y < (yMin + tileHeight); y++){
 		if(y >= image->height)
 			continue;

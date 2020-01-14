@@ -118,7 +118,7 @@ CoordinateFrame CreateCoordinatFrame(vec3 z){
 	if(z == vec3{0.f, 1.f, 0.f}){
 		result.front = z;
 		result.lateral = vec3{1, 0, 0};
-		result.up = {0, 0, 1};
+		result.up = {0, 0, -1};
 		return result;
 	}
 
